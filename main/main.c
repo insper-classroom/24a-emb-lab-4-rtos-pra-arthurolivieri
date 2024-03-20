@@ -196,6 +196,11 @@ void echo_task(void *p){
 }
 
 void oled_task(void *p){
+    double distancia_min = 2.0;
+    double distancia_max = 400.0;
+    int linha_min = 10;
+    int linha_max = 120;
+
     printf("Inicializando Driver\n");
     ssd1306_init();
 
@@ -212,12 +217,22 @@ void oled_task(void *p){
             if (xQueueReceive(xQueueDistance, &dist, 0)){
                 char distStr[20]; // Array de char para armazenar a string formatada da distância
                 snprintf(distStr, sizeof(distStr), "Dist: %.2f cm", dist); // Formata a distância com duas casas decimais
-                printf("%f\n", dist);
+                float proporcao = (dist - distancia_min) / (distancia_max - distancia_min);
+                int comprimento_linha = linha_min + (int)(proporcao * (linha_max - linha_min));
+
+                // Limitar o comprimento da linha aos limites do display
+                if (comprimento_linha > linha_max) comprimento_linha = linha_max;
+                if (comprimento_linha < linha_min) comprimento_linha = linha_min;
+
+
+                //printf("%f\n", dist);
                 gpio_put(LED_1_OLED, 1);
                 gpio_put(LED_2_OLED, 1);
                 gpio_put(LED_3_OLED, 1);
                 gfx_clear_buffer(&disp);
                 gfx_draw_string(&disp, 0, 0, 1, distStr);
+                gfx_draw_line(&disp, 15, 27, 15 + comprimento_linha,
+                          27);
                 gfx_show(&disp);
             }
         }
