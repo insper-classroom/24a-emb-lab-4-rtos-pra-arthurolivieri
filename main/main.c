@@ -137,14 +137,14 @@ void pin_callback(uint gpio, uint32_t events) {
     if (events == 0x4) { // fall edge
         if (gpio == ECHO_PIN){
                 time = to_us_since_boot(get_absolute_time());
-                xQueueSend(xQueueTime, &time, 0);
+                xQueueSendFromISR(xQueueTime, &time, 0);
             }
             
 
     } else if (events == 0x8) { // rise edge
         if (gpio == ECHO_PIN)
             time = to_us_since_boot(get_absolute_time());
-            xQueueSend(xQueueTime, &time, 0);
+            xQueueSendFromISR(xQueueTime, &time, 0);
     }
 }
 
@@ -214,7 +214,7 @@ void oled_task(void *p){
     double dist;
     while(true){
         if (xSemaphoreTake(xSemaphoreTrigger, pdMS_TO_TICKS(1000)) == pdTRUE){
-            if (xQueueReceive(xQueueDistance, &dist, 0)){
+            if (xQueueReceive(xQueueDistance, &dist, pdMS_TO_TICKS(250))){
                 char distStr[20]; // Array de char para armazenar a string formatada da distância
                 snprintf(distStr, sizeof(distStr), "Dist: %.2f cm", dist); // Formata a distância com duas casas decimais
                 float proporcao = (dist - distancia_min) / (distancia_max - distancia_min);
@@ -233,6 +233,11 @@ void oled_task(void *p){
                 gfx_draw_string(&disp, 0, 0, 1, distStr);
                 gfx_draw_line(&disp, 15, 27, 15 + comprimento_linha,
                           27);
+                gfx_show(&disp);
+            }
+            else{
+                gfx_clear_buffer(&disp);
+                gfx_draw_string(&disp, 0, 0, 1, "FAIL");
                 gfx_show(&disp);
             }
         }
