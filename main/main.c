@@ -25,6 +25,8 @@ const int ECHO_PIN = 18;
 const int VEL_SOM = 343;
 
 QueueHandle_t xQueueTime;
+QueueHandle_t xQueueDistance;
+SemaphoreHandle_t xSemaphoreTrigger;
 
 void oled1_btn_led_init(void) {
     gpio_init(LED_1_OLED);
@@ -157,10 +159,12 @@ void trigger_task(void *p){
         ECHO_PIN, GPIO_IRQ_EDGE_FALL | GPIO_IRQ_EDGE_RISE, true, &pin_callback);
 
     while(true){
+        xSemaphoreGive(xSemaphoreTrigger);
         gpio_put(TRIG_PIN, 1);
         vTaskDelay(pdMS_TO_TICKS(0.005));
         gpio_put(TRIG_PIN, 0);
         vTaskDelay(pdMS_TO_TICKS(1000.995));
+
     }
 }
 
@@ -184,8 +188,38 @@ void echo_task(void *p){
             time_high = time_fall - time_rise;
             dist = (double) time_high*VEL_SOM/(2*10000);
 
-            printf("%f\n", dist);
+            //printf("%f\n", dist);
+            xQueueSend(xQueueDistance, &dist, 0);
             receive_count = 0;
+        }
+    }
+}
+
+void oled_task(void *p){
+    printf("Inicializando Driver\n");
+    ssd1306_init();
+
+    printf("Inicializando GLX\n");
+    ssd1306_t disp;
+    gfx_init(&disp, 128, 32);
+
+    printf("Inicializando btn and LEDs\n");
+    oled1_btn_led_init();
+
+    double dist;
+    while(true){
+        if (xSemaphoreTake(xSemaphoreTrigger, pdMS_TO_TICKS(1000)) == pdTRUE){
+            if (xQueueReceive(xQueueDistance, &dist, 0)){
+                char distStr[20]; // Array de char para armazenar a string formatada da distância
+                snprintf(distStr, sizeof(distStr), "Dist: %.2f cm", dist); // Formata a distância com duas casas decimais
+                printf("%f\n", dist);
+                gpio_put(LED_1_OLED, 1);
+                gpio_put(LED_2_OLED, 1);
+                gpio_put(LED_3_OLED, 1);
+                gfx_clear_buffer(&disp);
+                gfx_draw_string(&disp, 0, 0, 1, distStr);
+                gfx_show(&disp);
+            }
         }
     }
 }
@@ -194,8 +228,12 @@ int main() {
     stdio_init_all();
 
     xQueueTime = xQueueCreate(32, sizeof(uint32_t));
+    xQueueDistance = xQueueCreate(64, sizeof(double));
+    xSemaphoreTrigger = xSemaphoreCreateBinary();
+
     xTaskCreate(trigger_task, "trigger_task", 4095, NULL, 1, NULL);
     xTaskCreate(echo_task, "echo_task", 4095, NULL, 1, NULL);
+    xTaskCreate(oled_task, "oled_task", 4095, NULL, 1, NULL);
 
     //xTaskCreate(oled1_demo_1, "Demo 1", 4095, NULL, 1, NULL);
 
