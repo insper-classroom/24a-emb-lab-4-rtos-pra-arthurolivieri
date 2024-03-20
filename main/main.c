@@ -20,6 +20,12 @@ const uint LED_1_OLED = 20;
 const uint LED_2_OLED = 21;
 const uint LED_3_OLED = 22;
 
+const int TRIG_PIN = 19;
+const int ECHO_PIN = 18;
+const int VEL_SOM = 343;
+
+QueueHandle_t xQueueTime;
+
 void oled1_btn_led_init(void) {
     gpio_init(LED_1_OLED);
     gpio_set_dir(LED_1_OLED, GPIO_OUT);
@@ -124,10 +130,74 @@ void oled1_demo_2(void *p) {
     }
 }
 
+void pin_callback(uint gpio, uint32_t events) {
+    uint32_t time;
+    if (events == 0x4) { // fall edge
+        if (gpio == ECHO_PIN){
+                time = to_us_since_boot(get_absolute_time());
+                xQueueSend(xQueueTime, &time, 0);
+            }
+            
+
+    } else if (events == 0x8) { // rise edge
+        if (gpio == ECHO_PIN)
+            time = to_us_since_boot(get_absolute_time());
+            xQueueSend(xQueueTime, &time, 0);
+    }
+}
+
+void trigger_task(void *p){
+    gpio_init(TRIG_PIN);
+    gpio_set_dir(TRIG_PIN, GPIO_OUT);
+
+    gpio_init(ECHO_PIN);
+    gpio_set_dir(ECHO_PIN, GPIO_IN);
+    
+    gpio_set_irq_enabled_with_callback(
+        ECHO_PIN, GPIO_IRQ_EDGE_FALL | GPIO_IRQ_EDGE_RISE, true, &pin_callback);
+
+    while(true){
+        gpio_put(TRIG_PIN, 1);
+        vTaskDelay(pdMS_TO_TICKS(0.005));
+        gpio_put(TRIG_PIN, 0);
+        vTaskDelay(pdMS_TO_TICKS(1000.995));
+    }
+}
+
+void echo_task(void *p){
+    uint32_t time;
+    int receive_count = 0;
+    uint32_t time_rise;
+    uint32_t time_fall;
+    double time_high;
+    double dist;
+
+    while(true){
+        while (receive_count < 2){
+            if (xQueueReceive(xQueueTime, &time, 0)){
+                if (receive_count == 0) time_rise = time;
+                if (receive_count == 1) time_fall = time;
+                receive_count++;
+            }
+        }
+        if (receive_count == 2){
+            time_high = time_fall - time_rise;
+            dist = (double) time_high*VEL_SOM/(2*10000);
+
+            printf("%f\n", dist);
+            receive_count = 0;
+        }
+    }
+}
+
 int main() {
     stdio_init_all();
 
-    xTaskCreate(oled1_demo_2, "Demo 2", 4095, NULL, 1, NULL);
+    xQueueTime = xQueueCreate(32, sizeof(uint32_t));
+    xTaskCreate(trigger_task, "trigger_task", 4095, NULL, 1, NULL);
+    xTaskCreate(echo_task, "echo_task", 4095, NULL, 1, NULL);
+
+    //xTaskCreate(oled1_demo_1, "Demo 1", 4095, NULL, 1, NULL);
 
     vTaskStartScheduler();
 
